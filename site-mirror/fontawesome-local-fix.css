@@ -1,0 +1,59 @@
+@font-face {
+  font-family: "Font Awesome 6 Brands";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src:
+    url("/external/cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6/webfonts/fa-brands-400.woff2") format("woff2"),
+    url("/external/cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6/webfonts/fa-brands-400.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Font Awesome 6 Free";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src:
+    url("/external/cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6/webfonts/fa-regular-400.woff2") format("woff2"),
+    url("/external/cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6/webfonts/fa-regular-400.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Font Awesome 6 Free";
+  font-style: normal;
+  font-weight: 900;
+  font-display: block;
+  src:
+    url("/external/cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6/webfonts/fa-solid-900.woff2") format("woff2"),
+    url("/external/cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6/webfonts/fa-solid-900.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "FontAwesome";
+  font-style: normal;
+  font-weight: 900;
+  font-display: block;
+  src:
+    url("/external/cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6/webfonts/fa-solid-900.woff2") format("woff2"),
+    url("/external/cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6/webfonts/fa-solid-900.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "FontAwesome";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src:
+    url("/external/cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6/webfonts/fa-regular-400.woff2") format("woff2"),
+    url("/external/cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6/webfonts/fa-regular-400.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "FontAwesome";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src:
+    url("/external/cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6/webfonts/fa-brands-400.woff2") format("woff2"),
+    url("/external/cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6/webfonts/fa-brands-400.ttf") format("truetype");
+}

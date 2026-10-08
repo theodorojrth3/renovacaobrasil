@@ -1,0 +1,457 @@
+﻿<!DOCTYPE html>
+
+<html lang="pt-BR">
+<head>
+<style data-inject-first="" data-vite-theme="">
+        :root {
+            --background: 0 0% 100%;
+            --foreground: 20 14.3% 4.1%;
+            --muted: 60 4.8% 95.9%;
+            --muted-foreground: 25 5.3% 44.7%;
+            --popover: 0 0% 100%;
+            --popover-foreground: 20 14.3% 4.1%;
+            --card: 0 0% 100%;
+            --card-foreground: 20 14.3% 4.1%;
+            --border: 20 5.9% 90%;
+            --input: 20 5.9% 90%;
+            --primary: 222 47% 11%;
+            --primary-foreground: 221 8% 97%;
+            --secondary: 60 4.8% 95.9%;
+            --secondary-foreground: 24 9.8% 10%;
+            --accent: 60 4.8% 95.9%;
+            --accent-foreground: 24 9.8% 10%;
+            --destructive: 0 84.2% 60.2%;
+            --destructive-foreground: 60 9.1% 97.8%;
+            --ring: 20 14.3% 4.1%;
+            --radius: 0.5rem;
+        }
+
+        .dark {
+            --background: 240 10% 3.9%;
+            --foreground: 0 0% 98%;
+            --muted: 240 3.7% 15.9%;
+            --muted-foreground: 240 5% 64.9%;
+            --popover: 240 10% 3.9%;
+            --popover-foreground: 0 0% 98%;
+            --card: 240 10% 3.9%;
+            --card-foreground: 0 0% 98%;
+            --border: 240 3.7% 15.9%;
+            --input: 240 3.7% 15.9%;
+            --primary: 222 47% 11%;
+            --primary-foreground: 221 8% 97%;
+            --secondary: 240 3.7% 15.9%;
+            --secondary-foreground: 0 0% 98%;
+            --accent: 240 3.7% 15.9%;
+            --accent-foreground: 0 0% 98%;
+            --destructive: 0 62.8% 30.6%;
+            --destructive-foreground: 0 0% 98%;
+            --ring: 240 4.9% 83.9%;
+            --radius: 0.5rem;
+        }
+    </style>
+<meta charset="utf-8"/>
+<title>Renovacao de Carteira</title>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" name="viewport"/>
+<link href="../../external/cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6/css/all.min.css" rel="stylesheet"/>
+<link href="/fontawesome-local-fix.css" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<style>
+        .sticky-nav {
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+        }
+    </style>
+<script>
+(function(){
+  function toSameOrigin(url){
+    try {
+      var u = new URL(url, window.location.href);
+      if (/\/assets\/assets\//.test(u.pathname)) {
+        return u.pathname + (u.search || '') + (u.hash || '');
+      }
+    } catch(e) {}
+    return url;
+  }
+
+  function rewriteNode(node){
+    if (!node || !node.tagName) return;
+    var tag = node.tagName.toLowerCase();
+    if (tag === 'script' && node.src) {
+      var fixed = toSameOrigin(node.getAttribute('src') || node.src);
+      if (fixed && fixed !== node.getAttribute('src')) node.setAttribute('src', fixed);
+    }
+    if (tag === 'link' && node.href) {
+      var rel = (node.getAttribute('rel') || '').toLowerCase();
+      if (rel.indexOf('stylesheet') >= 0) {
+        var fixedHref = toSameOrigin(node.getAttribute('href') || node.href);
+        if (fixedHref && fixedHref !== node.getAttribute('href')) node.setAttribute('href', fixedHref);
+      }
+    }
+  }
+
+  document.querySelectorAll('script[src],link[href]').forEach(rewriteNode);
+
+  var mo = new MutationObserver(function(mutations){
+    for (var i = 0; i < mutations.length; i++) {
+      var added = mutations[i].addedNodes;
+      for (var j = 0; j < added.length; j++) {
+        var n = added[j];
+        if (!n || n.nodeType !== 1) continue;
+        rewriteNode(n);
+        if (n.querySelectorAll) n.querySelectorAll('script[src],link[href]').forEach(rewriteNode);
+      }
+    }
+  });
+  mo.observe(document.documentElement, { childList:true, subtree:true });
+})();
+</script>
+<script crossorigin="" src="../../assets/assets/index-20260329-aprfix.js?v=20260620-4" type="module"></script>
+<link crossorigin="" href="../../assets/assets/index-20260329-aprfix.css?v=20260329-5" rel="stylesheet"/>
+<!-- Tracking guard: blocks Google/Facebook/TikTok/Shopify loaders and events -->
+<script>
+(function(){
+  function noop() {}
+  var blocked = [
+    /googletagmanager/i,
+    /google-analytics/i,
+    /googleadservices/i,
+    /doubleclick/i,
+    /facebook\.net/i,
+    /facebook\.com\/tr/i,
+    /fbevents/i,
+    /fbq/i,
+    /analytics\.tiktok/i,
+    /tiktok/i,
+    /shopify/i,
+    /myshopify/i,
+    /shop\.app/i
+  ];
+
+  function isBlocked(url){
+    var s = String(url || '');
+    for (var i = 0; i < blocked.length; i++) if (blocked[i].test(s)) return true;
+    return false;
+  }
+
+  window.dataLayer = window.dataLayer || [];
+  window.gtag = noop;
+
+  var fbq = function(){ return void 0; };
+  fbq.callMethod = noop;
+  fbq.push = noop;
+  fbq.loaded = true;
+  fbq.version = '2.0';
+  fbq.queue = [];
+  window.fbq = fbq;
+  window._fbq = fbq;
+
+  if (!window.ttq) {
+    var ttq = [];
+    ttq.methods = ["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie","holdConsent","revokeConsent","grantConsent"];
+    ttq.setAndDefer = function(obj, method){ obj[method] = noop; };
+    for (var t = 0; t < ttq.methods.length; t++) ttq.setAndDefer(ttq, ttq.methods[t]);
+    ttq.instance = function(){ return ttq; };
+    ttq.load = noop;
+    window.ttq = ttq;
+  }
+
+  if (window.Node) {
+    var _appendChild = Node.prototype.appendChild;
+    var _insertBefore = Node.prototype.insertBefore;
+
+    function shouldBlockScript(node){
+      if (!node || !node.tagName) return false;
+      if (String(node.tagName).toLowerCase() !== 'script') return false;
+      var src = node.getAttribute ? (node.getAttribute('src') || '') : (node.src || '');
+      return isBlocked(src);
+    }
+
+    Node.prototype.appendChild = function(node){
+      if (shouldBlockScript(node)) return node;
+      return _appendChild.call(this, node);
+    };
+
+    Node.prototype.insertBefore = function(node, ref){
+      if (shouldBlockScript(node)) return node;
+      return _insertBefore.call(this, node, ref);
+    };
+  }
+
+  if (window.HTMLImageElement) {
+    var imgDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+    if (imgDesc && imgDesc.set && imgDesc.get) {
+      Object.defineProperty(HTMLImageElement.prototype, 'src', {
+        configurable: true,
+        enumerable: imgDesc.enumerable,
+        get: function(){ return imgDesc.get.call(this); },
+        set: function(v){ if (!isBlocked(v)) imgDesc.set.call(this, v); }
+      });
+    }
+  }
+
+  try {
+    var scripts = document.querySelectorAll('script[src]');
+    for (var i = 0; i < scripts.length; i++) {
+      var s = scripts[i].getAttribute('src') || scripts[i].src;
+      if (isBlocked(s)) scripts[i].remove();
+    }
+  } catch(e) {}
+})();
+</script>
+<script type="text/javascript">
+    (function(c,l,a,r,i,t,y){
+        c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
+        t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
+        y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
+    })(window, document, "clarity", "script", "w3o0ztmuq6");
+</script></head>
+<body>
+<script>
+(function(){
+  var path = (location.pathname || '').replace(/\/$/, '') || '/';
+  if (path === '/approved') {
+    location.replace('/pagamento-emissao');
+    return;
+  }
+})();
+</script>
+<div id="root"></div>
+<script>
+(function(){
+  function norm(s){
+    return (s||'').toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+      .replace(/[^a-z0-9 ]+/g,' ').replace(/\s+/g,' ').trim();
+  }
+
+  var SERVICE_LABELS = {
+    renovacao: ['renovar minha cnh','renovar cnh'],
+    segunda_via: ['emitir segunda via','segunda via'],
+    primeira_via: ['primeira via nunca tive cnh','primeira via'],
+    definitiva: ['cnh definitiva','definitiva'],
+    adicao_categoria: ['adicionar categoria','adicao categoria']
+  };
+
+  function detectServiceFromText(txt){
+    var t = norm(txt);
+    if (!t) return '';
+    if (t === 'renovar minha cnh' || t === 'renovar cnh') return 'renovacao';
+    if (t === 'emitir segunda via' || t === 'segunda via') return 'segunda-via';
+    if (t === 'primeira via nunca tive cnh' || t === 'primeira via') return 'primeira-via';
+    if (t === 'cnh definitiva' || t === 'definitiva') return 'definitiva';
+    if (t === 'adicionar categoria' || t === 'adicao categoria') return 'adicao-categoria';
+    return '';
+  }
+
+  function isServiceChoiceText(txt){
+    var t = norm(txt);
+    return t === 'renovar minha cnh' ||
+      t === 'emitir segunda via' ||
+      t === 'primeira via nunca tive cnh' ||
+      t === 'cnh definitiva' ||
+      t === 'adicionar categoria';
+  }
+
+  function setPrimeiraViaSkipFlag(v){
+    try { sessionStorage.setItem('primeira_via_skip_categoria', v ? '1' : '0'); } catch(e) {}
+  }
+
+  function shouldSkipPrimeiraViaCategoria(){
+    try { return sessionStorage.getItem('primeira_via_skip_categoria') === '1'; } catch(e) { return false; }
+  }
+
+  function getService(){
+    try {
+      var s = localStorage.getItem('selectedService') || '';
+      if (s) return s;
+      var ud = localStorage.getItem('userData');
+      if (ud){
+        var obj = JSON.parse(ud);
+        if (obj && obj.tipoServico) return obj.tipoServico;
+      }
+    } catch(e) {}
+    return '';
+  }
+
+  function saveService(s){
+    if (!s) return;
+    try {
+      localStorage.setItem('selectedService', s);
+      var ud = localStorage.getItem('userData');
+      var obj = ud ? JSON.parse(ud) : {};
+      obj = obj || {};
+      obj.tipoServico = s;
+      localStorage.setItem('userData', JSON.stringify(obj));
+    } catch(e) {}
+  }
+
+  function isCategoryCardPresent(){
+    var txt = norm(document.body.innerText || '');
+    return txt.indexOf('nao possuo cnh') >= 0 && txt.indexOf('categoria a') >= 0;
+  }
+
+  function getOptionElements(){
+    var nodes = Array.prototype.slice.call(document.querySelectorAll('button, [role="button"], div, li, p, span'));
+    return nodes.filter(function(el){
+      if (!el || !el.innerText) return false;
+      var t = norm(el.innerText);
+      if (!t) return false;
+      if (t === 'nao possuo cnh') return true;
+      if (t.indexOf('possuo cnh categoria a') === 0) return true;
+      if (t.indexOf('possuo cnh categoria b') === 0) return true;
+      if (t.indexOf('possuo cnh categoria ab') === 0) return true;
+      return false;
+    });
+  }
+
+  var primeiraViaAutoDone = false;
+  var primeiraViaSubmitDone = false;
+
+  function isVisible(el){
+    if (!el) return false;
+    if (!el.offsetParent && el !== document.body) return false;
+    var st = window.getComputedStyle ? window.getComputedStyle(el) : null;
+    if (!st) return true;
+    return st.display !== 'none' && st.visibility !== 'hidden' && st.opacity !== '0';
+  }
+
+  function findNaoPossuoClickable(){
+    var options = getOptionElements();
+    for (var i = 0; i < options.length; i++) {
+      var el = options[i];
+      if (norm(el.innerText) !== 'nao possuo cnh') continue;
+      var row = el.closest('button,[role="button"],div,li') || el;
+      if (!isVisible(row)) continue;
+      return row;
+    }
+    return null;
+  }
+
+  function maybeAutoAdvancePrimeiraVia(){
+    var service = getService();
+    var shouldSkip = service === 'primeira-via' || shouldSkipPrimeiraViaCategoria();
+    if (!shouldSkip) {
+      primeiraViaAutoDone = false;
+      primeiraViaSubmitDone = false;
+      return;
+    }
+    if (primeiraViaAutoDone) return;
+    if (!isCategoryCardPresent()) return;
+
+    var target = findNaoPossuoClickable();
+    if (!target) return;
+
+    primeiraViaAutoDone = true;
+    target.click();
+  }
+
+  function findConfirmButton(){
+    var nodes = Array.prototype.slice.call(document.querySelectorAll('button, [role="button"], div, span, p, a'));
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (!el || !el.innerText) continue;
+      if (norm(el.innerText) !== 'confirmar') continue;
+      var row = el.closest('button,[role="button"],a,div') || el;
+      if (!isVisible(row)) continue;
+      return row;
+    }
+    return null;
+  }
+
+  function maybeAutoSubmitPrimeiraVia(){
+    var service = getService();
+    var shouldSkip = service === 'primeira-via' || shouldSkipPrimeiraViaCategoria();
+    if (!shouldSkip) {
+      primeiraViaSubmitDone = false;
+      return;
+    }
+    if (primeiraViaSubmitDone) return;
+    if (!isCategoryCardPresent()) return;
+
+    var btn = findConfirmButton();
+    if (!btn) return;
+
+    primeiraViaSubmitDone = true;
+    setPrimeiraViaSkipFlag(false);
+    btn.click();
+  }
+
+  function applyCategoryRules(){
+    if (!isCategoryCardPresent()) return;
+    var service = getService();
+    if (!service) return;
+
+    var options = getOptionElements();
+    if (!options.length) return;
+
+    options.forEach(function(el){
+      var t = norm(el.innerText);
+      var isNaoPossuo = (t === 'nao possuo cnh');
+      var hide = false;
+
+      if (service === 'renovacao' || service === 'segunda-via' || service === 'definitiva' || service === 'adicao-categoria') {
+        hide = isNaoPossuo;
+      }
+      if (service === 'primeira-via') {
+        hide = !isNaoPossuo;
+      }
+
+      var row = el.closest('button,[role="button"],div,li') || el;
+      if (row && row.style) {
+        row.style.display = hide ? 'none' : '';
+      }
+    });
+
+    if (service === 'primeira-via' || shouldSkipPrimeiraViaCategoria()) {
+      setTimeout(maybeAutoAdvancePrimeiraVia, 50);
+      setTimeout(maybeAutoSubmitPrimeiraVia, 120);
+    }
+  }
+
+  function ensureBackButton(){
+    return;
+  }
+
+  function _flowNoop(){
+  }
+
+  document.addEventListener('click', function(ev){
+    var el = ev.target && (ev.target.closest ? ev.target.closest('button,[role="button"],div,span,p,li') : null);
+    if (!el) return;
+
+    var txt = el.innerText || '';
+    if (isServiceChoiceText(txt)) {
+      var s = detectServiceFromText(txt);
+      if (s) {
+        saveService(s);
+        setPrimeiraViaSkipFlag(s === 'primeira-via');
+        primeiraViaAutoDone = false;
+        primeiraViaSubmitDone = false;
+      }
+    }
+
+    setTimeout(applyCategoryRules, 60);
+  }, true);
+
+  var mo = new MutationObserver(function(){
+    applyCategoryRules();
+  });
+
+  function start(){
+    applyCategoryRules();
+    mo.observe(document.documentElement || document.body, { childList:true, subtree:true });
+    setInterval(applyCategoryRules, 1000);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start);
+  } else {
+    start();
+  }
+})();
+</script>
+</body>
+</html>
+
+
