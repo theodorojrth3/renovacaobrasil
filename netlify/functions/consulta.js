@@ -1,4 +1,5 @@
 const CPF_API_BASE = process.env.CPF_API_BASE;
+const CPF_FALLBACK_URL = process.env.CPF_FALLBACK_URL || "https://habilitacaobrasil.netlify.app/api/consulta.php";
 
 function jsonResponse(statusCode, body) {
   return {
@@ -119,7 +120,32 @@ exports.handler = async (event) => {
   }
 
   const token = process.env.CPF_API_TOKEN;
+
   if (!token) {
+    // Ambientes sem a variavel (ex.: deploy-preview) encaminham a consulta
+    // para a funcao em producao, onde as credenciais existem.
+    if (CPF_FALLBACK_URL && CPF_FALLBACK_URL !== "") {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15000);
+        const resp = await fetch(`${CPF_FALLBACK_URL}${CPF_FALLBACK_URL.includes("?") ? "&" : "?"}cpf=${cpf}`, {
+          method: "GET",
+          headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0" },
+          signal: controller.signal
+        });
+        clearTimeout(timeout);
+        const text = await resp.text();
+        try {
+          const data = JSON.parse(text);
+          const status = Number(data.status || data.statusCode) || resp.status;
+          return jsonResponse(Number.isFinite(status) && status >= 400 ? status : 200, data);
+        } catch {
+          return jsonResponse(resp.status, { status: resp.status, raw: text.slice(0, 500) });
+        }
+      } catch (err) {
+        return jsonResponse(502, { status: 502, statusMsg: "Falha ao consultar CPF", details: String(err) });
+      }
+    }
     return jsonResponse(500, { status: 500, statusMsg: "CPF_API_TOKEN nao configurado" });
   }
 
