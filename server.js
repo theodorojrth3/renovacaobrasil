@@ -63,13 +63,17 @@ function normalizeCpf(cpf) {
   return String(cpf || "").replace(/\D/g, "");
 }
 
-function buildCpfApiUrl(cpf) {
-  const apiUrl = new URL("/api/v2/generic/cpf", CPF_API_BASE);
-  if (!["http:", "https:"].includes(apiUrl.protocol)) {
+function buildCpfApiUrls(cpf) {
+  const base = new URL(CPF_API_BASE);
+  if (!["http:", "https:"].includes(base.protocol)) {
     throw new Error("CPF_API_BASE invalido");
   }
-  apiUrl.searchParams.set("cpf", cpf);
-  return apiUrl.toString();
+  const make = (pathname) => {
+    const apiUrl = new URL(pathname, base);
+    apiUrl.searchParams.set("cpf", cpf);
+    return apiUrl.toString();
+  };
+  return [make("/api/cpf"), make("/api/v2/generic/cpf")];
 }
 
 function normalizeKey(key) {
@@ -114,8 +118,16 @@ function normalizeBirthDate(value) {
   return text;
 }
 
+function unwrapPayload(payload) {
+  if (payload && typeof payload === "object" && payload.body && typeof payload.body === "object") {
+    return payload.body;
+  }
+  return payload;
+}
+
 function extractCpfData(payload, fallbackCpf) {
-  const candidates = collectObjects(payload);
+  const root = unwrapPayload(payload);
+  const candidates = collectObjects(root);
   const base =
     candidates.find((item) => getField(item, ["nome", "nome_completo", "name", "NOME"])) ||
     candidates[0] ||
@@ -152,42 +164,57 @@ async function consultCpf(cpf) {
     };
   }
 
-  let apiUrl;
+  let apiUrls;
   try {
-    apiUrl = buildCpfApiUrl(cpf);
+    apiUrls = buildCpfApiUrls(cpf);
   } catch {
     return {
       statusCode: 500,
       payload: { status: 500, statusMsg: "CPF_API_BASE nao configurado ou invalido" }
     };
   }
-  let apiResp;
+  let apiResp = null;
   let text = "";
 
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12000);
-    try {
-      apiResp = await fetch(apiUrl, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "application/json"
-        },
-        signal: controller.signal
-      });
-      text = await apiResp.text();
-      if (apiResp.ok) break;
-    } catch (error) {
-      if (attempt === 3) {
-        return {
-          statusCode: 502,
-          payload: { status: 502, statusMsg: "Falha ao consultar CPF", details: String(error) }
-        };
+  for (const url of apiUrls) {
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 12000);
+      try {
+        const resp = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/json"
+          },
+          signal: controller.signal
+        });
+        const respText = await resp.text();
+        if (resp.status === 404) break;
+        apiResp = resp;
+        text = respText;
+        if (apiResp.ok) break;
+      } catch (error) {
+        if (attempt === 2 && url === apiUrls[apiUrls.length - 1]) {
+          return {
+            statusCode: 502,
+            payload: { status: 502, statusMsg: "Falha ao consultar CPF", details: String(error) }
+          };
+        }
+      } finally {
+        clearTimeout(timeout);
       }
-    } finally {
-      clearTimeout(timeout);
     }
+    if (apiResp && apiResp.ok) break;
+    apiResp = null;
+    text = "";
+  }
+
+  if (!apiResp) {
+    return {
+      statusCode: 502,
+      payload: { status: 502, statusMsg: "Falha ao consultar CPF: nenhuma rota respondeu" }
+    };
   }
 
   let data = {};
@@ -197,7 +224,8 @@ async function consultCpf(cpf) {
     data = { raw: text };
   }
 
-  const apiStatus = Number(data.status || data.statusCode || data.codigo);
+  const bodyLike = data && typeof data === "object" && data.body ? data.body : data;
+  const apiStatus = Number(bodyLike.status || bodyLike.statusCode || bodyLike.codigo);
   if (Number.isFinite(apiStatus) && apiStatus >= 400) {
     return { statusCode: apiStatus, payload: data };
   }

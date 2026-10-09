@@ -2,9 +2,40 @@
   publish = "site-mirror"
   functions = "netlify/functions"
 
+[functions]
+  node_bundler = "esbuild"
+
 [[redirects]]
   from = "/api/consulta.php"
   to = "/.netlify/functions/consulta"
+  status = 200
+
+[[redirects]]
+  from = "/api/payment/payment.php"
+  to = "/.netlify/functions/payment"
+  status = 200
+
+[[redirects]]
+  from = "/api/payment/payment_second.php"
+  to = "/.netlify/functions/payment"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/payment/payment_fixo.php"
+  to = "/.netlify/functions/payment"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/payment/status/status.php"
+  to = "/.netlify/functions/payment-status"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/blackcat/webhook"
+  to = "/.netlify/functions/blackcat-webhook"
   status = 200
 
 [[redirects]]

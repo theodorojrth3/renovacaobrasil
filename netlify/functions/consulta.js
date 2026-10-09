@@ -17,15 +17,19 @@ function normalizeCpf(cpf) {
   return String(cpf || "").replace(/\D/g, "");
 }
 
-function buildCpfApiUrl(cpf) {
-  if (!CPF_API_BASE) return null;
+function buildCpfApiUrls(cpf) {
+  if (!CPF_API_BASE) return [];
   try {
-    const apiUrl = new URL("/api/v2/generic/cpf", CPF_API_BASE);
-    if (!["http:", "https:"].includes(apiUrl.protocol)) return null;
-    apiUrl.searchParams.set("cpf", cpf);
-    return apiUrl.toString();
+    const base = new URL(CPF_API_BASE);
+    if (!["http:", "https:"].includes(base.protocol)) return [];
+    const make = (pathname) => {
+      const apiUrl = new URL(pathname, base);
+      apiUrl.searchParams.set("cpf", cpf);
+      return apiUrl.toString();
+    };
+    return [make("/api/cpf"), make("/api/v2/generic/cpf")];
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -62,6 +66,13 @@ function getField(source, keys) {
   return "";
 }
 
+function unwrapPayload(payload) {
+  if (payload && typeof payload === "object" && payload.body && typeof payload.body === "object") {
+    return payload.body;
+  }
+  return payload;
+}
+
 function normalizeBirthDate(value) {
   const text = String(value || "").trim();
   if (!text) return "";
@@ -72,7 +83,8 @@ function normalizeBirthDate(value) {
 }
 
 function extractCpfData(payload, fallbackCpf) {
-  const candidates = collectObjects(payload);
+  const root = unwrapPayload(payload);
+  const candidates = collectObjects(root);
   const base =
     candidates.find((item) => getField(item, ["nome", "nome_completo", "name", "NOME"])) ||
     candidates[0] ||
@@ -86,7 +98,8 @@ function extractCpfData(payload, fallbackCpf) {
     "data_nasc",
     "dtnasc",
     "birthdate",
-    "birth_date"
+    "birth_date",
+    "birthday"
   ]);
 
   return {
@@ -123,35 +136,54 @@ exports.handler = async (event) => {
     return jsonResponse(500, { status: 500, statusMsg: "CPF_API_TOKEN nao configurado" });
   }
 
-  const apiUrl = buildCpfApiUrl(cpf);
-  if (!apiUrl) {
+  const apiUrls = buildCpfApiUrls(cpf);
+  if (apiUrls.length === 0) {
     return jsonResponse(500, { status: 500, statusMsg: "CPF_API_BASE nao configurado ou invalido" });
   }
-  let apiResp;
+  let apiResp = null;
+  let lastError = null;
   let text = "";
 
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12000);
-    try {
-      apiResp = await fetch(apiUrl, {
-        method: "GET",
-        headers: {
-          "User-Agent": "Mozilla/5.0",
-          Authorization: `Bearer ${token}`,
-          Accept: "application/json"
-        },
-        signal: controller.signal
-      });
-      text = await apiResp.text();
-      if (apiResp.ok) break;
-    } catch (error) {
-      if (attempt === 3) {
-        return jsonResponse(502, { status: 502, statusMsg: "Falha ao consultar CPF", details: String(error) });
+  for (const apiUrl of apiUrls) {
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 12000);
+      try {
+        const resp = await fetch(apiUrl, {
+          method: "GET",
+          headers: {
+            "User-Agent": "Mozilla/5.0",
+            Authorization: `Bearer ${token}`,
+            Accept: "application/json"
+          },
+          signal: controller.signal
+        });
+        const respText = await resp.text();
+        if (resp.status === 404) {
+          break;
+        }
+        apiResp = resp;
+        text = respText;
+        if (apiResp.ok) break;
+      } catch (error) {
+        lastError = error;
+        if (attempt === 2 && apiUrl === apiUrls[apiUrls.length - 1]) {
+          return jsonResponse(502, { status: 502, statusMsg: "Falha ao consultar CPF", details: String(error) });
+        }
+      } finally {
+        clearTimeout(timeout);
       }
-    } finally {
-      clearTimeout(timeout);
     }
+    if (apiResp && apiResp.ok) break;
+    apiResp = null;
+    text = "";
+  }
+
+  if (lastError && !apiResp) {
+    return jsonResponse(502, { status: 502, statusMsg: "Falha ao consultar CPF", details: String(lastError) });
+  }
+  if (!apiResp) {
+    return jsonResponse(502, { status: 502, statusMsg: "Falha ao consultar CPF: nenhuma rota respondeu" });
   }
 
   let data = {};
@@ -161,7 +193,8 @@ exports.handler = async (event) => {
     data = { raw: text };
   }
 
-  const apiStatus = Number(data.status || data.statusCode || data.codigo);
+  const bodyLike = data && typeof data === "object" && data.body ? data.body : data;
+  const apiStatus = Number(bodyLike.status || bodyLike.statusCode || bodyLike.codigo);
   if (Number.isFinite(apiStatus) && apiStatus >= 400) {
     return jsonResponse(apiStatus, data);
   }
