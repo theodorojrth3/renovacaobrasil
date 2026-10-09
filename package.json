@@ -3,6 +3,8 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "@netlify/database": "^2.0.1",
+    "pg": "^8.23.1",
     "puppeteer": "^25.1.0",
     "website-scraper": "^6.0.0",
     "wget": "^0.0.1"

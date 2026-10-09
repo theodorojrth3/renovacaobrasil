@@ -2,9 +2,55 @@
   publish = "site-mirror"
   functions = "netlify/functions"
 
+[functions]
+  node_bundler = "esbuild"
+
+[functions."pix-api"]
+  external_node_modules = ["pg"]
+
 [[redirects]]
   from = "/api/consulta.php"
   to = "/.netlify/functions/consulta"
+  status = 200
+
+[[redirects]]
+  from = "/api/payment/payment.php"
+  to = "/.netlify/functions/pix-api"
+  status = 200
+
+[[redirects]]
+  from = "/api/payment/payment_second.php"
+  to = "/.netlify/functions/pix-api"
+  status = 200
+
+[[redirects]]
+  from = "/api/payment/payment_fixo.php"
+  to = "/.netlify/functions/pix-api"
+  status = 200
+
+[[redirects]]
+  from = "/api/payment/status/status.php"
+  to = "/.netlify/functions/pix-api"
+  status = 200
+
+[[redirects]]
+  from = "/api/notify-approved"
+  to = "/.netlify/functions/pix-api"
+  status = 200
+
+[[redirects]]
+  from = "/api/comprovantes/upload.php"
+  to = "/.netlify/functions/pix-api"
+  status = 200
+
+[[redirects]]
+  from = "/api/transaction/*"
+  to = "/.netlify/functions/pix-api"
+  status = 200
+
+[[redirects]]
+  from = "/api/log-access"
+  to = "/.netlify/functions/pix-api"
   status = 200
 
 [[redirects]]
