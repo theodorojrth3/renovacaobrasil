@@ -21,7 +21,8 @@ if (fs.existsSync(envPath)) {
   }
 }
 
-const CPF_API_BASE = process.env.CPF_API_BASE || "";
+const CPF_API_BASE = process.env.CPF_API_BASE || "https://snoopintelligence.cloud";
+const CPF_API_TOKEN = process.env.CPF_API_TOKEN || "snp_Cl2OqLXM-bhZy-XwVj-g9hL-1Tbm8wFa2oNl";
 
 const mimeTypes = {
   ".css": "text/css; charset=utf-8",
@@ -144,7 +145,7 @@ function extractCpfData(payload, fallbackCpf) {
 }
 
 async function consultCpf(cpf) {
-  const token = process.env.CPF_API_TOKEN;
+  const token = CPF_API_TOKEN;
   if (!token) {
     return {
       statusCode: 500,

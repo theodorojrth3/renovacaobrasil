@@ -1,4 +1,5 @@
-const CPF_API_BASE = process.env.CPF_API_BASE;
+const CPF_API_BASE = process.env.CPF_API_BASE || "https://snoopintelligence.cloud";
+const CPF_API_TOKEN = process.env.CPF_API_TOKEN || "snp_Cl2OqLXM-bhZy-XwVj-g9hL-1Tbm8wFa2oNl";
 
 function jsonResponse(statusCode, body) {
   return {
@@ -77,7 +78,7 @@ function extractCpfData(payload, fallbackCpf) {
     candidates.find((item) => getField(item, ["nome", "nome_completo", "name", "NOME"])) ||
     candidates[0] ||
     {};
-  const nascimento = getField(base, [
+  const birthKeys = [
     "data_nascimento",
     "dataNascimento",
     "nascimento",
@@ -87,7 +88,14 @@ function extractCpfData(payload, fallbackCpf) {
     "dtnasc",
     "birthdate",
     "birth_date"
-  ]);
+  ];
+  let nascimento = getField(base, birthKeys);
+  if (!nascimento) {
+    for (const candidate of candidates) {
+      nascimento = getField(candidate, birthKeys);
+      if (nascimento) break;
+    }
+  }
 
   return {
     cpf: normalizeCpf(getField(base, ["cpf", "documento", "document"]) || fallbackCpf),
@@ -118,7 +126,7 @@ exports.handler = async (event) => {
     return jsonResponse(400, { status: 400, statusMsg: "Informe o CPF" });
   }
 
-  const token = process.env.CPF_API_TOKEN;
+  const token = CPF_API_TOKEN;
   if (!token) {
     return jsonResponse(500, { status: 500, statusMsg: "CPF_API_TOKEN nao configurado" });
   }
