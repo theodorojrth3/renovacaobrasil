@@ -1,4 +1,5 @@
 const { Pool } = require("pg");
+const { getStore } = require("@netlify/blobs");
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -32,6 +33,32 @@ async function query(text, params = []) {
     return result.rows || [];
   } finally {
     client.release();
+  }
+}
+
+function statusStore() {
+  return getStore({ name: "pix_transactions", consistency: "strong" });
+}
+
+// Estado de pagamento duravel (Blobs). Sobrevive a reinicios e funciona
+// mesmo quando o Postgres nao esta acessivel no contexto atual.
+async function blobGet(id) {
+  try {
+    const value = await statusStore().get(id, { type: "json" });
+    return value || null;
+  } catch (err) {
+    console.error("blob get failed:", String(err).slice(0, 300));
+    return null;
+  }
+}
+
+async function blobPut(id, record) {
+  try {
+    await statusStore().setJSON(id, record);
+    return true;
+  } catch (err) {
+    console.error("blob put failed:", String(err).slice(0, 300));
+    return false;
   }
 }
 
@@ -166,6 +193,22 @@ async function createPixTransaction(body, kind) {
   }
 
   let persisted = true;
+  const record = {
+    transaction_id: transactionId,
+    deposit_id: depositId,
+    kind,
+    amount,
+    customer_name: String(body.customer_name || "").slice(0, 200),
+    customer_email: String(body.customer_email || "").slice(0, 200),
+    customer_phone: String(body.customer_phone || "").slice(0, 50),
+    customer_cpf: normalizeCpf(body.customer_cpf).slice(0, 11),
+    detran_uf: String(body.detran_uf || body.detran || "").slice(0, 10),
+    detran_nome: String(body.detran_nome || "").slice(0, 200),
+    pix_code: pixCode,
+    status: "pending",
+    created_at: new Date().toISOString()
+  };
+
   try {
     await query(
       `INSERT INTO pix_transactions
@@ -178,12 +221,12 @@ async function createPixTransaction(body, kind) {
         depositId,
         kind,
         amount,
-        String(body.customer_name || "").slice(0, 200),
-        String(body.customer_email || "").slice(0, 200),
-        String(body.customer_phone || "").slice(0, 50),
-        normalizeCpf(body.customer_cpf).slice(0, 11),
-        String(body.detran_uf || body.detran || "").slice(0, 10),
-        String(body.detran_nome || "").slice(0, 200),
+        record.customer_name,
+        record.customer_email,
+        record.customer_phone,
+        record.customer_cpf,
+        record.detran_uf,
+        record.detran_nome,
         pixCode
       ]
     );
@@ -191,6 +234,10 @@ async function createPixTransaction(body, kind) {
     persisted = false;
     console.error("pix insert failed:", String(err).slice(0, 500));
   }
+
+  // Sempre grava no Blobs: fonte de verdade do status mesmo sem Postgres.
+  await blobPut(transactionId, record);
+  await blobPut(depositId, { ...record, is_deposit_id: true });
 
   return {
     success: true,
@@ -205,6 +252,34 @@ async function createPixTransaction(body, kind) {
   };
 }
 
+async function markPaid(id, bankTxId) {
+  const paidRecord = { status: "paid", approved_at: new Date().toISOString(), bank_tx_id: bankTxId || null };
+  let blobFound = false;
+
+  try {
+    await query(
+      `UPDATE pix_transactions
+       SET status = 'paid', approved_at = NOW(), bank_tx_id = COALESCE(NULLIF($1, ''), bank_tx_id)
+       WHERE (transaction_id = $2 OR deposit_id = $2) AND status <> 'paid'`,
+      [String(bankTxId || "").slice(0, 100), id]
+    );
+  } catch (err) {
+    console.error("pg markPaid failed:", String(err).slice(0, 300));
+  }
+
+  for (const key of [id]) {
+    const existing = await blobGet(key);
+    if (existing) {
+      await blobPut(key, { ...existing, ...paidRecord });
+      blobFound = true;
+    }
+  }
+  if (!blobFound) {
+    // Transacao criada antes do Blobs ou gravacao original falhou: registra marcador.
+    await blobPut(id, { transaction_id: id, ...paidRecord, status_only: true });
+  }
+}
+
 async function getTransactionStatus(id) {
   let rows = [];
   try {
@@ -217,12 +292,43 @@ async function getTransactionStatus(id) {
     );
   } catch (err) {
     console.error("pix status query failed:", String(err).slice(0, 500));
-    return json(200, { success: true, status: "pending", transaction_id: id, pending_lookup: true });
   }
+
   const tx = rows && rows[0];
   if (!tx) {
-    return json(404, { success: false, error: "Transaction not found" });
+    // Postgres indisponivel/sem registro: consulta o Blobs.
+    const rec = await blobGet(id);
+    if (!rec) {
+      return json(404, { success: false, error: "Transaction not found" });
+    }
+    const payload = {
+      success: true,
+      status: rec.status,
+      transaction_id: rec.transaction_id || id,
+      deposit_id: rec.deposit_id || id,
+      bank_tx_id: rec.bank_tx_id || undefined
+    };
+    if (rec.status === "paid") {
+      payload.fire_google_ads = true;
+    }
+    return json(200, payload);
   }
+
+  // Se o Postgres ainda esta pendente mas o Blobs marca pago, o Blobs vence.
+  if (tx.status !== "paid") {
+    const rec = await blobGet(id);
+    if (rec && rec.status === "paid") {
+      return json(200, {
+        success: true,
+        status: "paid",
+        transaction_id: tx.transaction_id,
+        deposit_id: tx.deposit_id,
+        bank_tx_id: rec.bank_tx_id || undefined,
+        fire_google_ads: true
+      });
+    }
+  }
+
   const payload = {
     success: true,
     status: tx.status,
@@ -284,17 +390,8 @@ exports.handler = async (event) => {
   if (event.httpMethod === "POST" && path === "/api/notify-approved") {
     const body = await readJsonBody(event.body);
     const id = String(body.id || body.transaction_id || body.deposit_id || "").trim();
-    try {
-      if (id) {
-        await query(
-          `UPDATE pix_transactions
-           SET status = 'paid', approved_at = NOW(), bank_tx_id = COALESCE(NULLIF($1, ''), bank_tx_id)
-           WHERE (transaction_id = $2 OR deposit_id = $2) AND status <> 'paid'`,
-          [String(body.bank_tx_id || "").slice(0, 100), id]
-        );
-      }
-    } catch (err) {
-      console.error("notify-approved update failed:", String(err).slice(0, 500));
+    if (id) {
+      await markPaid(id, String(body.bank_tx_id || "").slice(0, 100));
     }
     return json(200, {
       success: true,
@@ -337,17 +434,7 @@ exports.handler = async (event) => {
       return json(400, { success: false, error: "transaction_id e obrigatorio" });
     }
 
-    try {
-      await query(
-        `UPDATE pix_transactions
-         SET status = 'paid', approved_at = NOW(), bank_tx_id = COALESCE($1, bank_tx_id)
-         WHERE (transaction_id = $2 OR deposit_id = $2) AND status <> 'paid'`,
-        [("comprovante_" + Date.now()).slice(0, 100), transactionId]
-      );
-    } catch (err) {
-      console.error("comprovante update failed:", String(err).slice(0, 500));
-      return json(200, { success: true, message: "Comprovante recebido", transaction_id: transactionId, pending_persist: true });
-    }
+    await markPaid(transactionId, ("comprovante_" + Date.now()).slice(0, 100));
     return json(200, { success: true, message: "Comprovante recebido", transaction_id: transactionId });
   }
 
@@ -355,8 +442,9 @@ exports.handler = async (event) => {
   const transactionMatch = path.match(/^\/api\/transaction\/([^/]+)$/);
   if (event.httpMethod === "GET" && transactionMatch) {
     const id = decodeURIComponent(transactionMatch[1]).trim();
+    let rows = [];
     try {
-      const rows = await query(
+      rows = await query(
         `SELECT transaction_id, deposit_id, kind, amount, customer_name, customer_cpf,
                 customer_email, customer_phone, pix_code, status, created_at
          FROM pix_transactions
@@ -364,15 +452,20 @@ exports.handler = async (event) => {
          LIMIT 1`,
         [id]
       );
-      const tx = rows && rows[0];
-      if (!tx) {
-        return json(404, { success: false, error: "Transacao nao encontrada" });
-      }
-      return json(200, { success: true, transaction: tx });
     } catch (err) {
       console.error("transaction lookup failed:", String(err).slice(0, 500));
+    }
+    let tx = rows && rows[0];
+    if (!tx) {
+      const rec = await blobGet(id);
+      if (rec && !rec.status_only) {
+        tx = rec;
+      }
+    }
+    if (!tx) {
       return json(404, { success: false, error: "Transacao nao encontrada" });
     }
+    return json(200, { success: true, transaction: tx });
   }
 
   // POST /api/log-access

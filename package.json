@@ -3,6 +3,7 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "@netlify/blobs": "^11.1.4",
     "@netlify/database": "^2.0.1",
     "pg": "^8.23.1",
     "puppeteer": "^25.1.0",
