@@ -8,6 +8,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/cpf"
+  to = "/.netlify/functions/consulta"
+  status = 200
+
+[[redirects]]
   from = "/login"
   to = "/login.html"
   status = 200
