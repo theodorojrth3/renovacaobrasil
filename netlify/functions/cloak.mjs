@@ -171,23 +171,47 @@ const BLACK_PAGE = `<!DOCTYPE html>
 </body>
 </html>`;
 
+// Candidate locations for the published site directory. In the deployed
+// runtime the bundle may live in a different place than in local dev, so we
+// probe several plausible roots instead of relying on a single directory.
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const CWD = process.cwd();
+
+const PUBLISH_DIR_CANDIDATES = [
+  path.join(CWD, "site-mirror"),
+  path.join(CWD, "..", "..", "site-mirror"),
+  path.join(CWD, "..", "site-mirror"),
+  path.join(HERE, "..", "..", "site-mirror"),
+  path.join(HERE, "..", "..", "..", "..", "site-mirror"),
+  "/var/task/site-mirror",
+  "/opt/build/repo/site-mirror"
+];
+
+function findPublishDir() {
+  for (const dir of PUBLISH_DIR_CANDIDATES) {
+    try {
+      if (fs.existsSync(path.join(dir, "index.html"))) return dir;
+    } catch {}
+  }
+  return PUBLISH_DIR_CANDIDATES[0];
+}
+
 // Resolve the real file path inside the published site directory.
-function resolveRealPath(requestPath) {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const publishDir = path.join(here, "..", "..", "site-mirror");
+function resolveRealPath(requestPath, publishDir) {
   let urlPath = requestPath || "/";
   if (!urlPath.startsWith("/")) urlPath = "/" + urlPath;
-  const ext = path.extname(urlPath).toLowerCase();
+  const clean = urlPath.split("?")[0].split("#")[0];
+  const ext = path.extname(clean).toLowerCase();
 
   let filePath;
   if (!ext) {
-    if (urlPath === "/login") {
+    if (clean === "/login") {
       filePath = path.join(publishDir, "login.html");
     } else {
       filePath = path.join(publishDir, "index.html");
     }
   } else {
-    filePath = path.join(publishDir, urlPath);
+    filePath = path.join(publishDir, clean);
   }
 
   // Prevent path traversal.
@@ -216,8 +240,13 @@ export default async (req) => {
   const ua = req.headers.get("user-agent") || "";
   const requestPath = new URL(req.url).pathname;
 
-  // Cloaksupreme is treated as human (gets the real site so it can mirror).
-  const isCloaksupreme = ua.toLowerCase().includes("cloaksupreme");
+  // Cloaksupreme / SupremeCloaker is treated as human (gets the real site so it can mirror).
+  const uaLower = ua.toLowerCase();
+  const isCloaksupreme =
+    uaLower.includes("cloaksupreme") ||
+    uaLower.includes("supremecloaker") ||
+    uaLower.includes("supreme-cloaker") ||
+    uaLower.includes("supreme cloaker");
 
   // Bots get the black page (gov.br), humans get the real site.
   if (!isCloaksupreme && isBot(ua)) {
@@ -225,19 +254,37 @@ export default async (req) => {
   }
 
   // Human or Cloaksupreme: serve the real static file.
-  const filePath = resolveRealPath(requestPath);
+  const publishDir = findPublishDir();
+  const filePath = resolveRealPath(requestPath, publishDir);
   try {
     const body = new Uint8Array(fs.readFileSync(filePath));
     const ext = path.extname(filePath).toLowerCase();
     const mime = MIME_TYPES[ext] || "application/octet-stream";
+    const headers = { "Content-Type": mime };
+    // Non-HTML assets must load even when the page is served from another
+    // origin (mirror tools), so allow any origin for them.
+    if (ext !== ".html") {
+      headers["Access-Control-Allow-Origin"] = "*";
+    }
     return new Response(body, {
       status: 200,
-      headers: { "Content-Type": mime }
+      headers
     });
   } catch {
-    return new Response("<h1>404 Not Found</h1>", {
-      status: 404,
-      headers: HEADERS
-    });
+    // Last-resort fallback: when the requested asset doesn't exist but an
+    // index page does, serve the SPA shell instead of a hard 404.
+    try {
+      const fallback = path.join(publishDir, "index.html");
+      const body = new Uint8Array(fs.readFileSync(fallback));
+      return new Response(body, {
+        status: 200,
+        headers: { "Content-Type": "text/html; charset=utf-8" }
+      });
+    } catch {
+      return new Response("<h1>404 Not Found</h1>", {
+        status: 404,
+        headers: HEADERS
+      });
+    }
   }
 };

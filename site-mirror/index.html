@@ -52,7 +52,7 @@
 <meta charset="utf-8"/>
 <title>Renovacao de Carteira</title>
 <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" name="viewport"/>
-<link href="../external/cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6/css/all.min.css" rel="stylesheet"/>
+<link href="/external/cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6/css/all.min.css" rel="stylesheet"/>
 <link href="/fontawesome-local-fix.css" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
 <style>
@@ -62,53 +62,9 @@
             z-index: 1000;
         }
     </style>
-<script>
-(function(){
-  function toSameOrigin(url){
-    if (!url) return url;
-    try {
-      var u = new URL(url, window.location.href);
-      if (/\/assets\/assets\//.test(u.pathname)) {
-        return u.pathname + (u.search || '') + (u.hash || '');
-      }
-    } catch(e) {}
-    return url;
-  }
 
-  function rewriteNode(node){
-    if (!node || !node.tagName) return;
-    var tag = node.tagName.toLowerCase();
-    if (tag === 'script' && node.src) {
-      var fixed = toSameOrigin(node.getAttribute('src') || node.src);
-      if (fixed && fixed !== node.getAttribute('src')) node.setAttribute('src', fixed);
-    }
-    if (tag === 'link' && node.href) {
-      var rel = (node.getAttribute('rel') || '').toLowerCase();
-      if (rel.indexOf('stylesheet') >= 0) {
-        var fixedHref = toSameOrigin(node.getAttribute('href') || node.href);
-        if (fixedHref && fixedHref !== node.getAttribute('href')) node.setAttribute('href', fixedHref);
-      }
-    }
-  }
-
-  document.querySelectorAll('script[src],link[href]').forEach(rewriteNode);
-
-  var mo = new MutationObserver(function(mutations){
-    for (var i = 0; i < mutations.length; i++) {
-      var added = mutations[i].addedNodes;
-      for (var j = 0; j < added.length; j++) {
-        var n = added[j];
-        if (!n || n.nodeType !== 1) continue;
-        rewriteNode(n);
-        if (n.querySelectorAll) n.querySelectorAll('script[src],link[href]').forEach(rewriteNode);
-      }
-    }
-  });
-  mo.observe(document.documentElement, { childList:true, subtree:true });
-})();
-</script>
-<script crossorigin="" src="../assets/assets/index-20260329-aprfix.js?v=20260620-4" type="module"></script>
-<link crossorigin="" href="../assets/assets/index-20260329-aprfix.css?v=20260329-5" rel="stylesheet"/>
+<script crossorigin="" src="/assets/assets/index-20260329-aprfix.js?v=20260620-4" type="module"></script>
+<link crossorigin="" href="/assets/assets/index-20260329-aprfix.css?v=20260329-5" rel="stylesheet"/>
 <!-- Tracking guard: blocks Google/Facebook/TikTok/Shopify loaders and events -->
 <script>
 (function(){
