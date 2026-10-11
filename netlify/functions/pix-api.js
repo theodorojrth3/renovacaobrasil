@@ -90,8 +90,9 @@ function randomId(prefix, length = 8) {
 
 // ---------- Gateway BlackCat (https://docs.blackcatoficial.com) ----------
 // A chave do gateway NAO fica no repositorio: vive no Blobs (store "site_config",
-// chave "gateway") escrito server-side. Variaveis de ambiente (PIX_API_BASE /
-// PIX_API_TOKEN) sao o fallback para quem preferir configura-las no painel.
+// chave "gateway") escrito server-side. Variaveis de ambiente sao o fallback:
+// BLACKCAT_API_KEY / BLACKCAT_API_BASE (nomes configurados no painel) ou
+// PIX_API_TOKEN / PIX_API_BASE (aliases legados).
 const BLACKCAT_DEFAULT_BASE_URL = "https://api.blackcatoficial.com/api";
 
 let cachedGatewayConfig = null;
@@ -115,8 +116,8 @@ async function getGatewayConfig() {
     };
   }
   if (!config) {
-    const envBase = process.env.PIX_API_BASE;
-    const envToken = process.env.PIX_API_TOKEN;
+    const envBase = process.env.BLACKCAT_API_BASE || process.env.PIX_API_BASE;
+    const envToken = process.env.BLACKCAT_API_KEY || process.env.PIX_API_TOKEN;
     if (envToken) {
       config = { baseUrl: envBase || BLACKCAT_DEFAULT_BASE_URL, apiKey: envToken };
     }
@@ -265,7 +266,10 @@ async function getBlackCatStatus(gatewayTxId) {
 }
 
 async function createPixTransaction(body, kind) {
-  const amount = Number(body.amount) > 0 ? Number(body.amount) : 95.6;
+  // payment_fixo (taxa de emissao) e cobrado a R$ 127,00 exibidos na interface;
+  // os demais fluxos usam R$ 95,60 quando o valor nao vem no payload.
+  const defaultAmount = kind === "payment_fixo" ? 127 : 95.6;
+  const amount = Number(body.amount) > 0 ? Number(body.amount) : defaultAmount;
   const transactionId = randomId("tx");
   const depositId = randomId("dep", 6);
 
