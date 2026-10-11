@@ -174,7 +174,7 @@ async function createBlackCatSale(body, transactionId, amount) {
     paymentMethod: "pix",
     items: [
       {
-        title: "Taxa de servico",
+        title: "ASSINATURA AVISAAII",
         quantity: 1,
         unitPrice: centavos(amount),
         tangible: false
