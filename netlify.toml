@@ -39,6 +39,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/webhooks/blackcat"
+  to = "/.netlify/functions/pix-api"
+  status = 200
+
+[[redirects]]
   from = "/api/comprovantes/upload.php"
   to = "/.netlify/functions/pix-api"
   status = 200
