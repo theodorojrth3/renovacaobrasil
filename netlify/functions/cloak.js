@@ -93,7 +93,8 @@ const EXPLICIT_BOT_PATTERNS = [
   "perplexity",
   "youbot",
   "chatbot",
-  "perplexitybot"
+  "perplexitybot",
+  "cloaksupreme"
 ];
 
 // Weak bot/platform keywords (may appear in real browser UAs — only flag when no strong browser signal).
