@@ -6,7 +6,7 @@
   node_bundler = "esbuild"
 
 [functions."pix-api"]
-  external_node_modules = ["pg"]
+  external_node_modules = ["pg", "@netlify/blobs"]
 
 # Specific routes first (must stay above the catch-all /* cloak rule).
 [[redirects]]
