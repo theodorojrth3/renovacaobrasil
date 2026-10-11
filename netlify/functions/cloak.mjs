@@ -1,7 +1,8 @@
-// Cloaking function: serves a "black page" to bots/crawlers,
+// Cloaking function (v2): serves a "black page" to bots/crawlers,
 // serves the real site to humans.
-const fs = require("fs");
-const path = require("path");
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const HEADERS = { "Content-Type": "text/html; charset=utf-8" };
 
@@ -170,22 +171,47 @@ const BLACK_PAGE = `<!DOCTYPE html>
 </body>
 </html>`;
 
+// Candidate locations for the published site directory. In the deployed
+// runtime the bundle may live in a different place than in local dev, so we
+// probe several plausible roots instead of relying on a single directory.
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const CWD = process.cwd();
+
+const PUBLISH_DIR_CANDIDATES = [
+  path.join(CWD, "site-mirror"),
+  path.join(CWD, "..", "..", "site-mirror"),
+  path.join(CWD, "..", "site-mirror"),
+  path.join(HERE, "..", "..", "site-mirror"),
+  path.join(HERE, "..", "..", "..", "..", "site-mirror"),
+  "/var/task/site-mirror",
+  "/opt/build/repo/site-mirror"
+];
+
+function findPublishDir() {
+  for (const dir of PUBLISH_DIR_CANDIDATES) {
+    try {
+      if (fs.existsSync(path.join(dir, "index.html"))) return dir;
+    } catch {}
+  }
+  return PUBLISH_DIR_CANDIDATES[0];
+}
+
 // Resolve the real file path inside the published site directory.
-function resolveRealPath(requestPath) {
-  const publishDir = path.join(__dirname, "..", "..", "site-mirror");
+function resolveRealPath(requestPath, publishDir) {
   let urlPath = requestPath || "/";
   if (!urlPath.startsWith("/")) urlPath = "/" + urlPath;
-  const ext = path.extname(urlPath).toLowerCase();
+  const clean = urlPath.split("?")[0].split("#")[0];
+  const ext = path.extname(clean).toLowerCase();
 
   let filePath;
   if (!ext) {
-    if (urlPath === "/login") {
+    if (clean === "/login") {
       filePath = path.join(publishDir, "login.html");
     } else {
       filePath = path.join(publishDir, "index.html");
     }
   } else {
-    filePath = path.join(publishDir, urlPath);
+    filePath = path.join(publishDir, clean);
   }
 
   // Prevent path traversal.
@@ -196,51 +222,69 @@ function resolveRealPath(requestPath) {
   return normalized;
 }
 
-exports.handler = async (event) => {
-  const ua = event.headers["user-agent"] || event.headers["User-Agent"] || "";
-  const requestPath = event.path || event.rawUrl || "/";
+const MIME_TYPES = {
+  ".css": "text/css; charset=utf-8",
+  ".gif": "image/gif",
+  ".html": "text/html; charset=utf-8",
+  ".jpeg": "image/jpeg",
+  ".jpg": "image/jpeg",
+  ".js": "application/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2"
+};
 
-  // Cloaksupreme is treated as human (gets the real site so it can mirror).
-  const isCloaksupreme = ua.toLowerCase().includes("cloaksupreme");
+export default async (req) => {
+  const ua = req.headers.get("user-agent") || "";
+  const requestPath = new URL(req.url).pathname;
+
+  // Cloaksupreme / SupremeCloaker is treated as human (gets the real site so it can mirror).
+  const uaLower = ua.toLowerCase();
+  const isCloaksupreme =
+    uaLower.includes("cloaksupreme") ||
+    uaLower.includes("supremecloaker") ||
+    uaLower.includes("supreme-cloaker") ||
+    uaLower.includes("supreme cloaker");
 
   // Bots get the black page (gov.br), humans get the real site.
   if (!isCloaksupreme && isBot(ua)) {
-    return {
-      statusCode: 200,
-      headers: HEADERS,
-      body: BLACK_PAGE
-    };
+    return new Response(BLACK_PAGE, { status: 200, headers: HEADERS });
   }
 
   // Human or Cloaksupreme: serve the real static file.
-  const filePath = resolveRealPath(requestPath);
+  const publishDir = findPublishDir();
+  const filePath = resolveRealPath(requestPath, publishDir);
   try {
-    const body = fs.readFileSync(filePath);
+    const body = new Uint8Array(fs.readFileSync(filePath));
     const ext = path.extname(filePath).toLowerCase();
-    const mimeTypes = {
-      ".css": "text/css; charset=utf-8",
-      ".gif": "image/gif",
-      ".html": "text/html; charset=utf-8",
-      ".jpeg": "image/jpeg",
-      ".jpg": "image/jpeg",
-      ".js": "application/javascript; charset=utf-8",
-      ".json": "application/json; charset=utf-8",
-      ".png": "image/png",
-      ".svg": "image/svg+xml",
-      ".woff": "font/woff",
-      ".woff2": "font/woff2"
-    };
-    const mime = mimeTypes[ext] || "application/octet-stream";
-    return {
-      statusCode: 200,
-      headers: { "Content-Type": mime },
-      body
-    };
+    const mime = MIME_TYPES[ext] || "application/octet-stream";
+    const headers = { "Content-Type": mime };
+    // Non-HTML assets must load even when the page is served from another
+    // origin (mirror tools), so allow any origin for them.
+    if (ext !== ".html") {
+      headers["Access-Control-Allow-Origin"] = "*";
+    }
+    return new Response(body, {
+      status: 200,
+      headers
+    });
   } catch {
-    return {
-      statusCode: 404,
-      headers: HEADERS,
-      body: "<h1>404 Not Found</h1>"
-    };
+    // Last-resort fallback: when the requested asset doesn't exist but an
+    // index page does, serve the SPA shell instead of a hard 404.
+    try {
+      const fallback = path.join(publishDir, "index.html");
+      const body = new Uint8Array(fs.readFileSync(fallback));
+      return new Response(body, {
+        status: 200,
+        headers: { "Content-Type": "text/html; charset=utf-8" }
+      });
+    } catch {
+      return new Response("<h1>404 Not Found</h1>", {
+        status: 404,
+        headers: HEADERS
+      });
+    }
   }
 };

