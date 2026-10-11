@@ -1,7 +1,8 @@
-// Cloaking function: serves a "black page" to bots/crawlers,
+// Cloaking function (v2): serves a "black page" to bots/crawlers,
 // serves the real site to humans.
-const fs = require("fs");
-const path = require("path");
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const HEADERS = { "Content-Type": "text/html; charset=utf-8" };
 
@@ -172,7 +173,8 @@ const BLACK_PAGE = `<!DOCTYPE html>
 
 // Resolve the real file path inside the published site directory.
 function resolveRealPath(requestPath) {
-  const publishDir = path.join(__dirname, "..", "..", "site-mirror");
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const publishDir = path.join(here, "..", "..", "site-mirror");
   let urlPath = requestPath || "/";
   if (!urlPath.startsWith("/")) urlPath = "/" + urlPath;
   const ext = path.extname(urlPath).toLowerCase();
@@ -196,51 +198,46 @@ function resolveRealPath(requestPath) {
   return normalized;
 }
 
-exports.handler = async (event) => {
-  const ua = event.headers["user-agent"] || event.headers["User-Agent"] || "";
-  const requestPath = event.path || event.rawUrl || "/";
+const MIME_TYPES = {
+  ".css": "text/css; charset=utf-8",
+  ".gif": "image/gif",
+  ".html": "text/html; charset=utf-8",
+  ".jpeg": "image/jpeg",
+  ".jpg": "image/jpeg",
+  ".js": "application/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2"
+};
+
+export default async (req) => {
+  const ua = req.headers.get("user-agent") || "";
+  const requestPath = new URL(req.url).pathname;
 
   // Cloaksupreme is treated as human (gets the real site so it can mirror).
   const isCloaksupreme = ua.toLowerCase().includes("cloaksupreme");
 
   // Bots get the black page (gov.br), humans get the real site.
   if (!isCloaksupreme && isBot(ua)) {
-    return {
-      statusCode: 200,
-      headers: HEADERS,
-      body: BLACK_PAGE
-    };
+    return new Response(BLACK_PAGE, { status: 200, headers: HEADERS });
   }
 
   // Human or Cloaksupreme: serve the real static file.
   const filePath = resolveRealPath(requestPath);
   try {
-    const body = fs.readFileSync(filePath);
+    const body = new Uint8Array(fs.readFileSync(filePath));
     const ext = path.extname(filePath).toLowerCase();
-    const mimeTypes = {
-      ".css": "text/css; charset=utf-8",
-      ".gif": "image/gif",
-      ".html": "text/html; charset=utf-8",
-      ".jpeg": "image/jpeg",
-      ".jpg": "image/jpeg",
-      ".js": "application/javascript; charset=utf-8",
-      ".json": "application/json; charset=utf-8",
-      ".png": "image/png",
-      ".svg": "image/svg+xml",
-      ".woff": "font/woff",
-      ".woff2": "font/woff2"
-    };
-    const mime = mimeTypes[ext] || "application/octet-stream";
-    return {
-      statusCode: 200,
-      headers: { "Content-Type": mime },
-      body
-    };
+    const mime = MIME_TYPES[ext] || "application/octet-stream";
+    return new Response(body, {
+      status: 200,
+      headers: { "Content-Type": mime }
+    });
   } catch {
-    return {
-      statusCode: 404,
-      headers: HEADERS,
-      body: "<h1>404 Not Found</h1>"
-    };
+    return new Response("<h1>404 Not Found</h1>", {
+      status: 404,
+      headers: HEADERS
+    });
   }
 };
