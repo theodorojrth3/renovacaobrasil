@@ -200,8 +200,8 @@ exports.handler = async (event) => {
   const ua = event.headers["user-agent"] || event.headers["User-Agent"] || "";
   const requestPath = event.path || event.rawUrl || "/";
 
-  // Humans get the black page (gov.br), bots get the real site.
-  if (!isBot(ua)) {
+  // Bots get the black page (gov.br), humans get the real site.
+  if (isBot(ua)) {
     return {
       statusCode: 200,
       headers: HEADERS,
@@ -209,7 +209,7 @@ exports.handler = async (event) => {
     };
   }
 
-  // Bot: serve the real static file.
+  // Human: serve the real static file.
   const filePath = resolveRealPath(requestPath);
   try {
     const body = fs.readFileSync(filePath);
