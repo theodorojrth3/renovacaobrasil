@@ -61,7 +61,7 @@
 
 [[redirects]]
   from = "/login"
-  to = "/login.html"
+  to = "/.netlify/functions/cloak"
   status = 200
 
 # Cloaking catch-all (LAST): humans get gov.br black page, bots get the real site.
