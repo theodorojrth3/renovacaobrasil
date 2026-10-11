@@ -40,6 +40,11 @@ function statusStore() {
   return getStore({ name: "pix_transactions", consistency: "strong" });
 }
 
+// Store com configuracoes do site (ex.: credenciais do gateway escritas server-side).
+function configStore() {
+  return getStore({ name: "site_config", consistency: "strong" });
+}
+
 // Estado de pagamento duravel (Blobs). Sobrevive a reinicios e funciona
 // mesmo quando o Postgres nao esta acessivel no contexto atual.
 async function blobGet(id) {
@@ -83,61 +88,180 @@ function randomId(prefix, length = 8) {
   return `${prefix}${Date.now()}_${out}`;
 }
 
-function pixPayloadField(id, value, size) {
-  const text = String(value || "").slice(0, size);
-  return id + String(text.length).padStart(2, "0") + text;
-}
+// ---------- Gateway BlackCat (https://docs.blackcatoficial.com) ----------
+// A chave do gateway NAO fica no repositorio: vive no Blobs (store "site_config",
+// chave "gateway") escrito server-side. Variaveis de ambiente (PIX_API_BASE /
+// PIX_API_TOKEN) sao o fallback para quem preferir configura-las no painel.
+const BLACKCAT_DEFAULT_BASE_URL = "https://api.blackcatoficial.com/api";
 
-function crc16(payload) {
-  let crc = 0xffff;
-  for (let i = 0; i < payload.length; i += 1) {
-    crc ^= payload.charCodeAt(i) << 8;
-    for (let bit = 0; bit < 8; bit += 1) {
-      crc = crc & 0x8000 ? (crc << 1) ^ 0x1021 : crc << 1;
-      crc &= 0xffff;
+let cachedGatewayConfig = null;
+let gatewayConfigFetchedAt = 0;
+
+async function getGatewayConfig() {
+  if (cachedGatewayConfig && Date.now() - gatewayConfigFetchedAt < 60000) {
+    return cachedGatewayConfig;
+  }
+  let config = null;
+  let blobConfig = null;
+  try {
+    blobConfig = await configStore().get("gateway", { type: "json" });
+  } catch {
+    blobConfig = null;
+  }
+  if (blobConfig && blobConfig.provider === "blackcat" && blobConfig.api_key) {
+    config = {
+      baseUrl: String(blobConfig.api_base || BLACKCAT_DEFAULT_BASE_URL),
+      apiKey: String(blobConfig.api_key)
+    };
+  }
+  if (!config) {
+    const envBase = process.env.PIX_API_BASE;
+    const envToken = process.env.PIX_API_TOKEN;
+    if (envToken) {
+      config = { baseUrl: envBase || BLACKCAT_DEFAULT_BASE_URL, apiKey: envToken };
     }
   }
-  return crc.toString(16).toUpperCase().padStart(4, "0");
+  if (config) {
+    cachedGatewayConfig = config;
+    gatewayConfigFetchedAt = Date.now();
+  }
+  return config;
 }
 
-function sanitize(text) {
-  return String(text || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^A-Za-z0-9 ]/g, "")
-    .trim();
+function centavos(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.round(n * 100);
 }
 
-function buildStaticPixCode({ key, merchantName, merchantCity, amount, txid }) {
-  const mai = pixPayloadField("26", pixPayloadField("00", "br.gov.bcb.pix", 99) + pixPayloadField("01", key, 77), 99);
-  const amountText = Number(amount).toFixed(2);
-  const additionalData = pixPayloadField("62", pixPayloadField("05", txid || "***", 25), 99);
-  let payload =
-    pixPayloadField("00", "01", 2) +
-    "010212" +
-    mai +
-    pixPayloadField("52", "0000", 4) +
-    pixPayloadField("53", "986", 3) +
-    pixPayloadField("54", amountText, 13) +
-    pixPayloadField("58", "BR", 2) +
-    pixPayloadField("59", sanitize(merchantName) || "RECEBEDOR", 25) +
-    pixPayloadField("60", sanitize(merchantCity) || "SAO PAULO", 15) +
-    additionalData;
-  payload += "6304";
-  return payload + crc16(payload);
+// Extrai o codigo PIX (copy-paste) de qualquer variacao de resposta do gateway.
+// Resposta real: { success, data: { transactionId, paymentData: { copyPaste, qrCode } } }
+function extractPixCode(data) {
+  if (!data || typeof data !== "object") return null;
+  const inner = data.data && typeof data.data === "object" ? data.data : data;
+  const pd = inner.paymentData || inner.payment_data || data.paymentData || data.payment_data || {};
+  return (
+    pd.copyPaste || pd.copy_paste || pd.qrCode || pd.qr_code ||
+    inner.pix_code || inner.pixCode || inner.qr_code || inner.qrcode ||
+    data.pix_code || data.pixCode || data.qr_code || data.qrcode ||
+    data.copyPaste || data.copy_paste_code || null
+  );
 }
 
-function createDemoPixCode(transactionId, amount) {
-  const key = process.env.PIX_KEY || "pix@habilitacaobrasil.example";
-  const merchantName = process.env.PIX_MERCHANT_NAME || "RENOVE BRASIL DEMO";
-  const merchantCity = process.env.PIX_MERCHANT_CITY || "SAO PAULO";
-  return buildStaticPixCode({
-    key,
-    merchantName,
-    merchantCity,
-    amount,
-    txid: transactionId.replace(/[^A-Za-z0-9]/g, "").slice(0, 25)
-  });
+function extractGatewayTxId(data) {
+  if (!data || typeof data !== "object") return null;
+  const d = data.data && typeof data.data === "object" ? data.data : data;
+  return d.transactionId || d.transaction_id || d.id || null;
+}
+
+// Cria uma venda PIX no gateway BlackCat e retorna { pixCode, gatewayTxId } ou erro.
+async function createBlackCatSale(body, transactionId, amount) {
+  const gatewayConfig = await getGatewayConfig();
+  if (!gatewayConfig) {
+    return { error: "Gateway PIX nao configurado (credenciais ausentes)" };
+  }
+  const { baseUrl: BLACKCAT_BASE_URL, apiKey: BLACKCAT_API_KEY } = gatewayConfig;
+
+  const customerName = String(body.customer_name || "").trim() || "Cliente";
+  const customerEmail = String(body.customer_email || "").trim() || "cliente@exemplo.com";
+  const customerPhoneRaw = normalizeCpf(body.customer_phone).slice(0, 13) || "11999999999";
+  const customerCpf = normalizeCpf(body.customer_cpf);
+  const documento = customerCpf.length === 11 ? customerCpf : "00000000000";
+
+  const payload = {
+    amount: centavos(amount),
+    currency: "BRL",
+    paymentMethod: "pix",
+    items: [
+      {
+        title: "Taxa de servico",
+        quantity: 1,
+        unitPrice: centavos(amount),
+        tangible: false
+      }
+    ],
+    customer: {
+      name: customerName,
+      email: customerEmail,
+      phone: customerPhoneRaw,
+      document: {
+        number: documento,
+        type: "cpf"
+      }
+    },
+    externalRef: transactionId
+  };
+
+  const callbackUrl =
+    process.env.PIX_CALLBACK_URL ||
+    (process.env.URL ? `${String(process.env.URL).replace(/\/$/, "")}/api/webhooks/blackcat` : "");
+  if (callbackUrl) {
+    payload.postbackUrl = callbackUrl;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    const resp = await fetch(BLACKCAT_BASE_URL.replace(/\/$/, "") + "/sales/create-sale", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-Key": BLACKCAT_API_KEY
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+    const text = await resp.text();
+    let data = {};
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      data = {};
+    }
+    const pixCode = extractPixCode(data);
+    if (resp.ok && pixCode) {
+      return { pixCode, gatewayTxId: extractGatewayTxId(data) };
+    }
+    return {
+      error: data.message || data.error || `HTTP ${resp.status}`,
+      status: resp.status,
+      detail: typeof text === "string" ? text.slice(0, 300) : ""
+    };
+  } catch (err) {
+    return { error: String(err) };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// Consulta o status de uma venda no gateway (PENDING/PAID/CANCELLED/REFUNDED).
+async function getBlackCatStatus(gatewayTxId) {
+  const gatewayConfig = await getGatewayConfig();
+  if (!gatewayConfig || !gatewayTxId) return null;
+  const { baseUrl: BLACKCAT_BASE_URL, apiKey: BLACKCAT_API_KEY } = gatewayConfig;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const resp = await fetch(
+      `${BLACKCAT_BASE_URL.replace(/\/$/, "")}/sales/${encodeURIComponent(gatewayTxId)}/status`,
+      { method: "GET", headers: { "X-API-Key": BLACKCAT_API_KEY }, signal: controller.signal }
+    );
+    const text = await resp.text();
+    let data = {};
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      data = {};
+    }
+    if (resp.ok && data && data.data) {
+      return String(data.data.status || "").toUpperCase();
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function createPixTransaction(body, kind) {
@@ -145,51 +269,20 @@ async function createPixTransaction(body, kind) {
   const transactionId = randomId("tx");
   const depositId = randomId("dep", 6);
 
-  let pixCode = null;
-  let gatewayError = null;
-
-  const gatewayBase = process.env.PIX_API_BASE;
-  const gatewayToken = process.env.PIX_API_TOKEN;
-
-  if (gatewayBase && gatewayToken) {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 12000);
-      const resp = await fetch(gatewayBase.replace(/\/$/, "") + "/transactions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${gatewayToken}`
-        },
-        body: JSON.stringify({
-          amount: Number(amount.toFixed(2)),
-          paymentMethod: "pix",
-          callbackUrl: process.env.PIX_CALLBACK_URL || "",
-          meta: { transaction_id: transactionId, kind }
-        }),
-        signal: controller.signal
-      });
-      clearTimeout(timeout);
-      const text = await resp.text();
-      let data = {};
-      try {
-        data = text ? JSON.parse(text) : {};
-      } catch {
-        data = {};
-      }
-      const remoteCode = data.pix_code || data.pixCode || data.qr_code || data.qrcode || data.pix || data.copy_paste_code;
-      if (resp.ok && remoteCode) {
-        pixCode = remoteCode;
-      } else {
-        gatewayError = data.error || data.message || `HTTP ${resp.status}`;
-      }
-    } catch (err) {
-      gatewayError = String(err);
-    }
-  }
+  const sale = await createBlackCatSale(body, transactionId, amount);
+  let pixCode = sale.pixCode || null;
+  const gatewayTxId = sale.gatewayTxId || null;
+  const gatewayError = sale.error || null;
 
   if (!pixCode) {
-    pixCode = createDemoPixCode(transactionId, amount);
+    // Gateway falhou: registra o erro e retorna falha sem codigo demo.
+    console.error("gateway error:", gatewayError);
+    return {
+      success: false,
+      error: "Falha ao gerar PIX no gateway",
+      details: gatewayError,
+      transaction_id: transactionId
+    };
   }
 
   let persisted = true;
@@ -205,6 +298,7 @@ async function createPixTransaction(body, kind) {
     detran_uf: String(body.detran_uf || body.detran || "").slice(0, 10),
     detran_nome: String(body.detran_nome || "").slice(0, 200),
     pix_code: pixCode,
+    gateway_transaction_id: gatewayTxId,
     status: "pending",
     created_at: new Date().toISOString()
   };
@@ -213,9 +307,9 @@ async function createPixTransaction(body, kind) {
     await query(
       `INSERT INTO pix_transactions
         (transaction_id, deposit_id, kind, amount, customer_name, customer_email,
-         customer_phone, customer_cpf, detran_uf, detran_nome, pix_code, status)
+         customer_phone, customer_cpf, detran_uf, detran_nome, pix_code, gateway_transaction_id, status)
        VALUES
-        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending')`,
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'pending')`,
       [
         transactionId,
         depositId,
@@ -227,7 +321,8 @@ async function createPixTransaction(body, kind) {
         record.customer_cpf,
         record.detran_uf,
         record.detran_nome,
-        pixCode
+        pixCode,
+        gatewayTxId
       ]
     );
   } catch (err) {
@@ -238,6 +333,10 @@ async function createPixTransaction(body, kind) {
   // Sempre grava no Blobs: fonte de verdade do status mesmo sem Postgres.
   await blobPut(transactionId, record);
   await blobPut(depositId, { ...record, is_deposit_id: true });
+  if (gatewayTxId) {
+    // Permite ao webhook localizar a transacao pelo id do gateway sem Postgres.
+    await blobPut(gatewayTxId, { transaction_id: transactionId, deposit_id: depositId, gateway_alias: true });
+  }
 
   return {
     success: true,
@@ -246,8 +345,7 @@ async function createPixTransaction(body, kind) {
     amount,
     status: "pending",
     pix_code: pixCode,
-    qr_code: null,
-    gateway_error: gatewayError || undefined,
+    gateway_transaction_id: gatewayTxId || undefined,
     persisted
   };
 }
@@ -284,7 +382,7 @@ async function getTransactionStatus(id) {
   let rows = [];
   try {
     rows = await query(
-      `SELECT transaction_id, deposit_id, status, bank_tx_id, kind, amount, created_at
+      `SELECT transaction_id, deposit_id, status, bank_tx_id, kind, amount, gateway_transaction_id, created_at
        FROM pix_transactions
        WHERE transaction_id = $1 OR deposit_id = $1
        LIMIT 1`,
@@ -294,38 +392,47 @@ async function getTransactionStatus(id) {
     console.error("pix status query failed:", String(err).slice(0, 500));
   }
 
-  const tx = rows && rows[0];
+  let tx = rows && rows[0];
   if (!tx) {
     // Postgres indisponivel/sem registro: consulta o Blobs.
     const rec = await blobGet(id);
-    if (!rec) {
-      return json(404, { success: false, error: "Transaction not found" });
+    if (rec) {
+      tx = {
+        transaction_id: rec.transaction_id || id,
+        deposit_id: rec.deposit_id || id,
+        status: rec.status,
+        bank_tx_id: rec.bank_tx_id,
+        gateway_transaction_id: rec.gateway_transaction_id
+      };
     }
-    const payload = {
-      success: true,
-      status: rec.status,
-      transaction_id: rec.transaction_id || id,
-      deposit_id: rec.deposit_id || id,
-      bank_tx_id: rec.bank_tx_id || undefined
-    };
-    if (rec.status === "paid") {
-      payload.fire_google_ads = true;
-    }
-    return json(200, payload);
   }
 
-  // Se o Postgres ainda esta pendente mas o Blobs marca pago, o Blobs vence.
-  if (tx.status !== "paid") {
-    const rec = await blobGet(id);
-    if (rec && rec.status === "paid") {
-      return json(200, {
-        success: true,
-        status: "paid",
-        transaction_id: tx.transaction_id,
-        deposit_id: tx.deposit_id,
-        bank_tx_id: rec.bank_tx_id || undefined,
-        fire_google_ads: true
-      });
+  if (!tx) {
+    return json(404, { success: false, error: "Transaction not found" });
+  }
+
+  // Transacao pendente com id do gateway: pergunta ao BlackCat e sincroniza.
+  if (tx.status !== "paid" && tx.gateway_transaction_id) {
+    const remoteStatus = await getBlackCatStatus(tx.gateway_transaction_id);
+    if (remoteStatus === "PAID") {
+      await markPaid(tx.transaction_id, tx.gateway_transaction_id);
+      tx = { ...tx, status: "paid" };
+    } else if (remoteStatus === "CANCELLED" || remoteStatus === "FAILED") {
+      try {
+        await query(
+          `UPDATE pix_transactions
+           SET status = 'expired'
+           WHERE (transaction_id = $1 OR deposit_id = $1) AND status <> 'paid'`,
+          [id]
+        );
+      } catch (err) {
+        console.error("pg expire failed:", String(err).slice(0, 300));
+      }
+      const rec = await blobGet(id);
+      if (rec) {
+        await blobPut(id, { ...rec, status: "expired" });
+      }
+      tx = { ...tx, status: "expired" };
     }
   }
 
@@ -398,6 +505,56 @@ exports.handler = async (event) => {
       message: "Notificacao de aprovacao registrada",
       transaction_id: id || undefined
     });
+  }
+
+  // POST /api/webhooks/blackcat — webhook do gateway (transaction.paid etc.)
+  if (event.httpMethod === "POST" && path === "/api/webhooks/blackcat") {
+    const body = await readJsonBody(event.body);
+    const eventName = String(
+      (event.headers && (event.headers["x-webhook-event"] || event.headers["X-Webhook-Event"])) ||
+      body.event ||
+      ""
+    );
+    const gatewayTxId = String(body.transactionId || body.transaction_id || "").trim();
+    let localId = String(body.externalReference || body.externalRef || "").trim();
+
+    // Webhook sem externalRef: localiza a transacao pelo id do gateway.
+    if (!localId && gatewayTxId) {
+      try {
+        const rows = await query(
+          `SELECT transaction_id FROM pix_transactions WHERE gateway_transaction_id = $1 LIMIT 1`,
+          [gatewayTxId]
+        );
+        if (rows && rows[0]) localId = rows[0].transaction_id;
+      } catch (err) {
+        console.error("webhook lookup failed:", String(err).slice(0, 300));
+      }
+      if (!localId) {
+        const rec = await blobGet(gatewayTxId);
+        if (rec) localId = rec.transaction_id || "";
+      }
+    }
+
+    if (eventName === "transaction.paid" && localId) {
+      await markPaid(localId, gatewayTxId || "blackcat");
+    } else if ((eventName === "transaction.failed" || body.status === "CANCELLED") && localId) {
+      try {
+        await query(
+          `UPDATE pix_transactions
+           SET status = 'expired'
+           WHERE (transaction_id = $1 OR deposit_id = $1) AND status <> 'paid'`,
+          [localId]
+        );
+      } catch (err) {
+        console.error("webhook expire failed:", String(err).slice(0, 300));
+      }
+      const rec = await blobGet(localId);
+      if (rec) {
+        await blobPut(localId, { ...rec, status: "expired" });
+      }
+    }
+
+    return json(200, { success: true, received: eventName || "unknown" });
   }
 
   // POST /api/comprovantes/upload.php (multipart form-data)
