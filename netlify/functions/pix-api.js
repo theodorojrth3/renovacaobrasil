@@ -1,5 +1,5 @@
 const { Pool } = require("pg");
-const { getStore } = require("@netlify/blobs");
+const { connectLambda, getStore } = require("@netlify/blobs");
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -36,13 +36,15 @@ async function query(text, params = []) {
   }
 }
 
+let blobConsistency = "strong";
+
 function statusStore() {
-  return getStore({ name: "pix_transactions", consistency: "strong" });
+  return getStore({ name: "pix_transactions", consistency: blobConsistency });
 }
 
 // Store com configuracoes do site (ex.: credenciais do gateway escritas server-side).
 function configStore() {
-  return getStore({ name: "site_config", consistency: "strong" });
+  return getStore({ name: "site_config", consistency: blobConsistency });
 }
 
 // Estado de pagamento duravel (Blobs). Sobrevive a reinicios e funciona
@@ -89,15 +91,21 @@ function randomId(prefix, length = 8) {
 }
 
 // ---------- Gateway BlackCat (https://docs.blackcatoficial.com) ----------
-// A chave do gateway NAO fica no repositorio: vive no Blobs (store "site_config",
-// chave "gateway") escrito server-side. Variaveis de ambiente (PIX_API_BASE /
-// PIX_API_TOKEN) sao o fallback para quem preferir configura-las no painel.
+// A chave do gateway NAO fica no repositorio. PIX_API_TOKEN / PIX_API_BASE
+// configurados no ambiente tem prioridade; Blobs e o fallback server-side.
 const BLACKCAT_DEFAULT_BASE_URL = "https://api.blackcatoficial.com/api";
 
 let cachedGatewayConfig = null;
 let gatewayConfigFetchedAt = 0;
 
 async function getGatewayConfig() {
+  const envToken = String(process.env.PIX_API_TOKEN || "").trim();
+  if (envToken) {
+    return {
+      baseUrl: String(process.env.PIX_API_BASE || "").trim().replace(/\/+$/, "") || BLACKCAT_DEFAULT_BASE_URL,
+      apiKey: envToken
+    };
+  }
   if (cachedGatewayConfig && Date.now() - gatewayConfigFetchedAt < 60000) {
     return cachedGatewayConfig;
   }
@@ -108,18 +116,12 @@ async function getGatewayConfig() {
   } catch {
     blobConfig = null;
   }
-  if (blobConfig && blobConfig.provider === "blackcat" && blobConfig.api_key) {
+  const blobToken = String((blobConfig && blobConfig.api_key) || "").trim();
+  if (blobConfig && blobConfig.provider === "blackcat" && blobToken) {
     config = {
-      baseUrl: String(blobConfig.api_base || BLACKCAT_DEFAULT_BASE_URL),
-      apiKey: String(blobConfig.api_key)
+      baseUrl: String(blobConfig.api_base || "").trim().replace(/\/+$/, "") || BLACKCAT_DEFAULT_BASE_URL,
+      apiKey: blobToken
     };
-  }
-  if (!config) {
-    const envBase = process.env.PIX_API_BASE;
-    const envToken = process.env.PIX_API_TOKEN;
-    if (envToken) {
-      config = { baseUrl: envBase || BLACKCAT_DEFAULT_BASE_URL, apiKey: envToken };
-    }
   }
   if (config) {
     cachedGatewayConfig = config;
@@ -212,23 +214,28 @@ async function createBlackCatSale(body, transactionId, amount) {
       signal: controller.signal
     });
     const text = await resp.text();
-    let data = {};
+    let data;
     try {
-      data = text ? JSON.parse(text) : {};
+      data = JSON.parse(text);
     } catch {
-      data = {};
+      return { error: `Gateway retornou resposta JSON invalida (HTTP ${resp.status})`, status: resp.status };
+    }
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      return { error: `Gateway retornou resposta invalida (HTTP ${resp.status})`, status: resp.status };
+    }
+    if (!resp.ok || data.success !== true) {
+      const messages = [data.message, data.error].filter((value) => typeof value === "string" && value.trim());
+      const message = [...new Set(messages)].join(": ") || `Gateway recusou a venda PIX (HTTP ${resp.status})`;
+      return { error: message.split(BLACKCAT_API_KEY).join("[redigido]").slice(0, 300), status: resp.status };
     }
     const pixCode = extractPixCode(data);
-    if (resp.ok && pixCode) {
-      return { pixCode, gatewayTxId: extractGatewayTxId(data) };
+    const gatewayTxId = extractGatewayTxId(data);
+    if (typeof pixCode !== "string" || !pixCode.trim() || typeof gatewayTxId !== "string" || !gatewayTxId.trim()) {
+      return { error: "Gateway retornou venda PIX sem codigo ou identificador da transacao", status: resp.status };
     }
-    return {
-      error: data.message || data.error || `HTTP ${resp.status}`,
-      status: resp.status,
-      detail: typeof text === "string" ? text.slice(0, 300) : ""
-    };
+    return { pixCode: pixCode.trim(), gatewayTxId: gatewayTxId.trim() };
   } catch (err) {
-    return { error: String(err) };
+    return { error: err && err.name === "AbortError" ? "Tempo limite ao gerar PIX no gateway" : "Falha de conexao com o gateway PIX" };
   } finally {
     clearTimeout(timeout);
   }
@@ -461,6 +468,12 @@ async function readJsonBody(bodyString) {
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") {
     return { statusCode: 204, headers: CORS_HEADERS, body: "" };
+  }
+
+  if (event.blobs) {
+    connectLambda(event);
+    // O contexto Lambda nao fornece a URL sem cache exigida por "strong".
+    blobConsistency = "eventual";
   }
 
   const path = event.path || "";
