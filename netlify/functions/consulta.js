@@ -72,6 +72,32 @@ function normalizeBirthDate(value) {
   return text;
 }
 
+// Consulta o CPF no servico de fallback (usado quando a API principal falha
+// ou quando as credenciais nao estao disponiveis no contexto atual).
+async function queryFallback(cpf) {
+  if (!CPF_FALLBACK_URL) return null;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    const resp = await fetch(`${CPF_FALLBACK_URL}${CPF_FALLBACK_URL.includes("?") ? "&" : "?"}cpf=${cpf}`, {
+      method: "GET",
+      headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0" },
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    const text = await resp.text();
+    try {
+      const data = JSON.parse(text);
+      const status = Number(data.status || data.statusCode) || resp.status;
+      return jsonResponse(Number.isFinite(status) && status >= 400 ? status : 200, data);
+    } catch {
+      return jsonResponse(resp.status, { status: resp.status, raw: text.slice(0, 500) });
+    }
+  } catch (err) {
+    return jsonResponse(502, { status: 502, statusMsg: "Falha ao consultar CPF", details: String(err) });
+  }
+}
+
 function extractCpfData(payload, fallbackCpf) {
   const candidates = collectObjects(payload);
   const base =
@@ -124,29 +150,7 @@ exports.handler = async (event) => {
   if (!token) {
     // Ambientes sem a variavel (ex.: deploy-preview) encaminham a consulta
     // para a funcao em producao, onde as credenciais existem.
-    if (CPF_FALLBACK_URL && CPF_FALLBACK_URL !== "") {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 15000);
-        const resp = await fetch(`${CPF_FALLBACK_URL}${CPF_FALLBACK_URL.includes("?") ? "&" : "?"}cpf=${cpf}`, {
-          method: "GET",
-          headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0" },
-          signal: controller.signal
-        });
-        clearTimeout(timeout);
-        const text = await resp.text();
-        try {
-          const data = JSON.parse(text);
-          const status = Number(data.status || data.statusCode) || resp.status;
-          return jsonResponse(Number.isFinite(status) && status >= 400 ? status : 200, data);
-        } catch {
-          return jsonResponse(resp.status, { status: resp.status, raw: text.slice(0, 500) });
-        }
-      } catch (err) {
-        return jsonResponse(502, { status: 502, statusMsg: "Falha ao consultar CPF", details: String(err) });
-      }
-    }
-    return jsonResponse(500, { status: 500, statusMsg: "CPF_API_TOKEN nao configurado" });
+    return (await queryFallback(cpf)) || jsonResponse(500, { status: 500, statusMsg: "CPF_API_TOKEN nao configurado" });
   }
 
   const apiUrl = buildCpfApiUrl(cpf);
@@ -173,6 +177,9 @@ exports.handler = async (event) => {
       if (apiResp.ok) break;
     } catch (error) {
       if (attempt === 3) {
+        // API principal falhou apos as tentativas: tenta o fallback antes de desistir.
+        const fallbackResp = await queryFallback(cpf);
+        if (fallbackResp && fallbackResp.statusCode === 200) return fallbackResp;
         return jsonResponse(502, { status: 502, statusMsg: "Falha ao consultar CPF", details: String(error) });
       }
     } finally {
@@ -193,6 +200,13 @@ exports.handler = async (event) => {
   }
 
   if (!apiResp || !apiResp.ok) {
+    // Servico principal respondeu erro HTTP: tenta o fallback (a nao ser que
+    // o erro venha do proprio upstream com dados validos, ex.: 404).
+    if (apiResp && (apiResp.status === 404 || apiResp.status === 401 || apiResp.status === 403)) {
+      return jsonResponse(apiResp.status, data);
+    }
+    const fallbackResp = await queryFallback(cpf);
+    if (fallbackResp && fallbackResp.statusCode === 200) return fallbackResp;
     return jsonResponse(apiResp ? apiResp.status : 502, data);
   }
 
